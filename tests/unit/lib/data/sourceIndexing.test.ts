@@ -1,6 +1,9 @@
 import { expect, it } from "vitest";
 
-import { hideFormulaTermVariablesWithoutStandardName } from "@/lib/data/sourceIndexing.ts";
+import {
+  hideDggsCoordinateVariable,
+  hideFormulaTermVariablesWithoutStandardName,
+} from "@/lib/data/sourceIndexing.ts";
 import type { TDataSource } from "@/lib/types/GlobeTypes.ts";
 
 const CFAttribute = {
@@ -68,3 +71,18 @@ it.each([undefined, 42, "", "ap", "ap:", ":ap", "ap:ap:extra"])(
     expect(datasources.ap.hidden).toBeUndefined();
   }
 );
+
+it("hides the cell id variable named by the DGGS zarr convention", () => {
+  const datasources: Record<string, TDataSource> = {
+    ["cell_id_ranges"]: datasource(),
+    elevation: datasource(),
+  };
+
+  hideDggsCoordinateVariable(datasources, {
+    dggs: { name: "igeo7", coordinate: "cell_id_ranges" },
+  });
+  hideDggsCoordinateVariable(datasources, {});
+
+  expect(datasources["cell_id_ranges"].hidden).toBe(true);
+  expect(datasources.elevation.hidden).toBeUndefined();
+});

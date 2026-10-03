@@ -13,6 +13,7 @@ full-size cutout.
 | `irregular`          | Unstructured grid represented by lat/lon pairs           | Yes                    | <a href="assets/irregular_cutout.png"><img src="assets/irregular_cutout.png" alt="Irregular grid points" width="220"></a>                                |
 | `irregular_delaunay` | Irregular grid rendered with Delaunay triangles          | No                     | <a href="assets/irregular_delaunay_cutout.png"><img src="assets/irregular_delaunay_cutout.png" alt="Delaunay-rendered irregular grid cells" width="220"></a> |
 | `curvilinear`        | Grid whose latitude and longitude are 2-D arrays         | Yes                    | <a href="assets/curvi_cutout.png"><img src="assets/curvi_cutout.png" alt="Curvilinear grid cells" width="220"></a>                                      |
+| `igeo7`              | IGEO7 hexagonal discrete global grid (Z7 cell id ranges) | Yes                    | —                                                                                                                                                            |
 
 `error` also exists internally, but it represents failed detection rather than a
 supported grid.
@@ -47,8 +48,12 @@ selected data variable in order:
 3. **Zarr convention metadata**
 
    If the selected variable's parent group has a `zarr_conventions` attribute
-   and a `dggs` object whose `name` is `healpix`, the grid is `healpix`. Other
-   DGGS names are currently unsupported and result in `error`.
+   and a `dggs` object whose `name` is `healpix`, the grid is `healpix`. If the
+   `name` is `igeo7` and `compression` is `ranges`, the grid is `igeo7`: the
+   variable named by `coordinate` then holds an `(R, 2)` table of inclusive
+   `[start, end]` packed Z7 cell ids, and the data variables list the cells of
+   those ranges in order. Cells are currently drawn as points at their centres.
+   Other DGGS names are currently unsupported and result in `error`.
 
 4. **Dimension names**
 

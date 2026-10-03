@@ -224,6 +224,29 @@ it("returns healpix from DGGS zarr convention metadata", async () => {
   await expect(detectGridType(sources)).resolves.toBe(GRID_TYPES.HEALPIX);
 });
 
+it.each([
+  ["ranges", GRID_TYPES.IGEO7],
+  ["none", GRID_TYPES.ERROR],
+])(
+  "returns igeo7 from DGGS zarr convention metadata only for %s compression",
+  async (compression, expectedGridType) => {
+    const sources = createSources(["cell_ids"]);
+    vi.mocked(ZarrDataManager.getParentGroup).mockResolvedValue(
+      createGroup({
+        [ZarrMetadataAttributeName.ZARR_CONVENTIONS]: ["dggs"],
+        [ZarrMetadataAttributeName.DGGS]: {
+          name: "igeo7",
+          [ZarrMetadataAttributeName.REFINEMENT_LEVEL]: 10,
+          coordinate: "cell_id_ranges",
+          compression,
+        },
+      })
+    );
+
+    await expect(detectGridType(sources)).resolves.toBe(expectedGridType);
+  }
+);
+
 it.each([[["time", "lat", "lon"]], [["time", "lat"]]])(
   "returns regular from dimension names %j",
   async (dimensionNames) => {

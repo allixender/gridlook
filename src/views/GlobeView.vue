@@ -53,6 +53,7 @@ import type { TCameraState } from "@/ui/grids/composables/useGridCameraState.ts"
 import GridCurvilinear from "@/ui/grids/Curvilinear.vue";
 import GridGaussianReduced from "@/ui/grids/GaussianReduced.vue";
 import GridHealpix from "@/ui/grids/Healpix.vue";
+import GridIgeo7 from "@/ui/grids/Igeo7.vue";
 import GridIrregular from "@/ui/grids/Irregular.vue";
 import GridIrregularDelaunay from "@/ui/grids/IrregularDelaunay.vue";
 import GridRegular from "@/ui/grids/Regular.vue";
@@ -192,6 +193,7 @@ const currentGlobeComponent = computed(() => {
     [GRID_TYPES.IRREGULAR]: GridIrregular,
     [GRID_TYPES.IRREGULAR_DELAUNAY]: GridIrregularDelaunay,
     [GRID_TYPES.CURVILINEAR]: GridCurvilinear,
+    [GRID_TYPES.IGEO7]: GridIgeo7,
   };
 
   return gridMapping[activeGridType.value as keyof typeof gridMapping];

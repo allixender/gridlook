@@ -4,6 +4,7 @@ import {
   ZARR_FORMAT,
   type TDataSource,
   type TSources,
+  type TZarrDggsMetadata,
   type TZarrFormat,
 } from "../types/GlobeTypes.ts";
 
@@ -72,6 +73,21 @@ export function hideFormulaTermVariablesWithoutStandardName(
         formulaTermDatasource.hidden = true;
       }
     }
+  }
+}
+
+/**
+ * The DGGS zarr convention names the variable holding the cell ids. It is a
+ * coordinate, even when no data variable lists it in its `coordinates`.
+ */
+export function hideDggsCoordinateVariable(
+  datasources: Record<string, TDataSource>,
+  groupAttrs: zarr.Attributes
+) {
+  const coordinate = (groupAttrs.dggs as TZarrDggsMetadata | undefined)
+    ?.coordinate;
+  if (coordinate && datasources[coordinate]) {
+    datasources[coordinate].hidden = true;
   }
 }
 
@@ -288,6 +304,7 @@ function createIndex(
     source.groupAttrs = groupAttrs;
   }
   hideFormulaTermVariablesWithoutStandardName(datasources);
+  hideDggsCoordinateVariable(datasources, groupAttrs);
   const datasetSource = {
     store: src,
     dataset: datasetPath,

@@ -23,6 +23,7 @@ export const GRID_TYPES = {
   IRREGULAR: "irregular",
   IRREGULAR_DELAUNAY: "irregular_delaunay",
   CURVILINEAR: "curvilinear",
+  IGEO7: "igeo7",
   ERROR: "error",
 } as const;
 
@@ -190,12 +191,15 @@ async function determineGridTypeFromCRS(
 function determineGridTypeFromDGGSZarrConvention(
   metadata: TZarrDggsMetadata
 ): T_GRID_TYPES | null {
-  if (metadata["name"] !== "healpix") {
-    // unsupported DGGS, for now
-    return GRID_TYPES.ERROR;
+  if (metadata["name"] === "healpix") {
+    return GRID_TYPES.HEALPIX;
   }
-
-  return GRID_TYPES.HEALPIX;
+  // IGEO7 is only readable when the cell ids are stored as a range table.
+  if (metadata["name"] === "igeo7" && metadata["compression"] === "ranges") {
+    return GRID_TYPES.IGEO7;
+  }
+  // unsupported DGGS, for now
+  return GRID_TYPES.ERROR;
 }
 
 async function determineGridTypeFromZarrConvention(
