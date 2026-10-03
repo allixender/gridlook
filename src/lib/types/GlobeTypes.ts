@@ -49,6 +49,13 @@ export type TZarrDggsMetadata = {
   coordinate: string | null;
   indexing_scheme: IndexingScheme;
   ellipsoid: EllipsoidInput;
+  // IGEO7 archives: `compression: "ranges"` stores the cell ids as a table of
+  // id ranges in `coordinate`, and the icosahedron orientation is mandatory.
+  compression?: string;
+  spatial_dimension?: string;
+  dggs_vert0_lon?: number;
+  dggs_vert0_lat?: number;
+  dggs_vert0_azimuth?: number;
 };
 
 export type TDatasetSource = {
