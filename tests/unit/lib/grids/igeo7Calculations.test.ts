@@ -5,6 +5,8 @@ import fixture from "../../../fixtures/igeo7/pori_z7_r10.json";
 import {
   buildIgeo7Batch,
   buildIgeo7RangeIndex,
+  chooseIgeo7LevelOffset,
+  coarsenIgeo7Cells,
   expandIgeo7Ranges,
   getIgeo7BatchCount,
   getIgeo7GridDefinition,
@@ -98,6 +100,88 @@ it("requires the icosahedron orientation", () => {
   expect(() => getIgeo7GridDefinition(metadata)).toThrow("dggs_vert0_lon");
 });
 
+it("goes up the fewest levels that fit the cell budget", () => {
+  const index = buildIgeo7RangeIndex(rangeTable, level);
+
+  // Parent counts of the sample archive, from the Python reference.
+  expect(chooseIgeo7LevelOffset(index, 3101)).toBe(0);
+  expect(chooseIgeo7LevelOffset(index, 3100)).toBe(1);
+  expect(chooseIgeo7LevelOffset(index, 478)).toBe(1);
+  expect(chooseIgeo7LevelOffset(index, 477)).toBe(2);
+  expect(chooseIgeo7LevelOffset(index, 82)).toBe(2);
+  expect(chooseIgeo7LevelOffset(index, 18)).toBe(3);
+  expect(chooseIgeo7LevelOffset(index, 0)).toBe(level);
+});
+
+it("keeps the cells when no coarsening is needed", () => {
+  const index = buildIgeo7RangeIndex(rangeTable, level);
+  const data = new Float32Array(index.cellCount);
+
+  const coarse = coarsenIgeo7Cells(index, data, 0);
+
+  expect(coarse.index).toBe(index);
+  expect(coarse.data).toBe(data);
+});
+
+it("averages cell values per ancestor cell", () => {
+  // Level 2 cells 5..9 and 14..15: parents 0 (5, 6), 1 (7, 8, 9) and 2.
+  const index = buildIgeo7RangeIndex(
+    BigUint64Array.of(
+      monotonicToZ7(5, 2),
+      monotonicToZ7(9, 2),
+      monotonicToZ7(14, 2),
+      monotonicToZ7(15, 2)
+    ),
+    2
+  );
+  const data = Float32Array.of(1, 3, 10, NaN, -999, 4, 8);
+
+  const coarse = coarsenIgeo7Cells(index, data, 1, -999);
+
+  expect(coarse.index.level).toBe(1);
+  expect(coarse.index.cellCount).toBe(3);
+  expect(Array.from(expandIgeo7Ranges(coarse.index))).toEqual([
+    monotonicToZ7(0, 1),
+    monotonicToZ7(1, 1),
+    monotonicToZ7(2, 1),
+  ]);
+  expect(Array.from(coarse.data)).toEqual([2, 10, 6]);
+});
+
+it("keeps separate runs of ancestors apart and marks empty ones", () => {
+  // Level 1 cells 0 and 21..22: parents 0 and 3, nothing in between.
+  const index = buildIgeo7RangeIndex(
+    BigUint64Array.of(
+      monotonicToZ7(0, 1),
+      monotonicToZ7(0, 1),
+      monotonicToZ7(21, 1),
+      monotonicToZ7(22, 1)
+    ),
+    1
+  );
+
+  const coarse = coarsenIgeo7Cells(index, Float32Array.of(NaN, 2, 4), 1);
+
+  expect(Array.from(coarse.index.startMonotonic)).toEqual([0, 3]);
+  expect(Array.from(coarse.index.offsets)).toEqual([0, 1, 2]);
+  expect(Array.from(coarse.data)).toEqual([NaN, 3]);
+});
+
+it("coarsens the sample archive to the reference parent counts", () => {
+  const index = buildIgeo7RangeIndex(rangeTable, level);
+  const data = new Float32Array(index.cellCount).fill(5);
+
+  for (const [levelOffset, cellCount] of [
+    [1, 478],
+    [2, 82],
+    [3, 18],
+  ]) {
+    const coarse = coarsenIgeo7Cells(index, data, levelOffset);
+    expect(coarse.index.cellCount).toBe(cellCount);
+    expect(coarse.data.every((value) => value === 5)).toBe(true);
+  }
+});
+
 // A counter-clockwise hexagon and a clockwise pentagon around (0, 0).
 const testRings = {
   latitudes: Float64Array.of(
@@ -126,7 +210,6 @@ it("builds one fan of triangles per cell with the cell value", () => {
     testRings,
     Float32Array.of(10, 20),
     0,
-    2,
     testProjection
   );
 
@@ -141,17 +224,22 @@ it("builds one fan of triangles per cell with the cell value", () => {
   ]);
 });
 
-it("splits cells into batches with batch-local vertex indices", () => {
+it("labels a batch and sizes it for a part of the cells", () => {
+  const pentagon = {
+    latitudes: testRings.latitudes.subarray(6),
+    longitudes: testRings.longitudes.subarray(6),
+    offsets: Uint32Array.of(0, 5),
+  };
+
   const batch = buildIgeo7Batch(
-    testRings,
-    Float32Array.of(10, 20),
-    1,
-    1,
+    pentagon,
+    Float32Array.of(20),
+    3,
     testProjection
   );
 
-  expect(getIgeo7BatchCount(2, 1)).toBe(2);
-  expect(batch.batchIndex).toBe(1);
+  expect(getIgeo7BatchCount(25, 10)).toBe(3);
+  expect(batch.batchIndex).toBe(3);
   expect(Array.from(batch.dataValues)).toEqual([20, 20, 20, 20, 20]);
   expect(Array.from(batch.indices)).toEqual([0, 2, 1, 0, 3, 2, 0, 4, 3]);
 });

@@ -53,6 +53,9 @@ selected data variable in order:
    variable named by `coordinate` then holds an `(R, 2)` table of inclusive
    `[start, end]` packed Z7 cell ids, and the data variables list the cells of
    those ranges in order. Each cell is drawn as its hexagon (or pentagon).
+   Archives with more than 250 000 cells are drawn at the finest ancestor
+   level that stays below that number, each ancestor cell showing the mean of
+   its descendants in the data.
    Other DGGS names are currently unsupported and result in `error`.
 
 4. **Dimension names**

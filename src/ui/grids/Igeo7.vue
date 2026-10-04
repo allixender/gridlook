@@ -20,7 +20,11 @@ import {
   terminateGridDataWorker,
 } from "@/lib/grids/gridDataWorkerClient.ts";
 import type { TGridGeometryBatch } from "@/lib/grids/gridWorkerTypes.ts";
-import { getIgeo7GridDefinition } from "@/lib/grids/igeo7Calculations.ts";
+import {
+  buildIgeo7RangeIndex,
+  chooseIgeo7LevelOffset,
+  getIgeo7GridDefinition,
+} from "@/lib/grids/igeo7Calculations.ts";
 import {
   buildIgeo7Grid,
   terminateIgeo7Worker,
@@ -52,8 +56,10 @@ const urlParameterStore = useUrlParameterStore();
 const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
   storeToRefs(urlParameterStore);
 
-// Cells per mesh.
-const BATCH_SIZE = 100000;
+// Cells per mesh. Small enough that the first cells appear quickly.
+const BATCH_SIZE = 10000;
+// Finer data is drawn at the coarsest ancestor level that fits this budget.
+const MAX_CELLS = 250000;
 let meshes: THREE.Mesh[] = [];
 
 const {
@@ -118,10 +124,7 @@ const { datasourceUpdate } = useGridDataLoader({
   updateColormap: () => updateColormap(meshes),
 });
 
-function cleanupMeshes(totalBatches: number) {
-  if (meshes.length <= totalBatches) {
-    return;
-  }
+function removeMeshes() {
   for (const mesh of meshes) {
     mesh.geometry.dispose();
     getScene()?.remove(mesh);
@@ -163,6 +166,32 @@ function updateBatchMesh(batch: TGridGeometryBatch) {
   mesh.frustumCulled = false;
   meshes.push(mesh);
   getScene()?.add(mesh);
+}
+
+function fitCameraToExtent(extentLatLon: Float32Array) {
+  fitCameraToDataset([
+    {
+      geometry: new THREE.BufferGeometry().setAttribute(
+        "latLon",
+        new THREE.BufferAttribute(extentLatLon, 2)
+      ),
+    },
+  ]);
+}
+
+function getDisplayedAttributes(
+  attrs: zarr.Attributes,
+  level: number,
+  levelOffset: number
+) {
+  if (levelOffset === 0) {
+    return attrs;
+  }
+  const name = (attrs.long_name as string) ?? varnameSelector.value;
+  return {
+    ...attrs,
+    ["long_name"]: `${name} (mean per level ${level - levelOffset} cell, data at level ${level})`,
+  };
 }
 
 async function getDggsMetadata() {
@@ -257,40 +286,56 @@ async function fetchAndRenderData(
     datavar,
     rawData
   );
+  const dimInfo = await getDimensionValues(dimensionRanges, indices);
+  if (!isCurrent()) {
+    return;
+  }
+  const grid = getIgeo7GridDefinition(metadata);
+  const levelOffset = chooseIgeo7LevelOffset(
+    buildIgeo7RangeIndex(cellIdRanges, grid.level),
+    MAX_CELLS
+  );
   const helper = projectionHelper.value;
   const batches: TGridGeometryBatch[] = [];
-  const result = await buildIgeo7Grid(
+  let displayed = false;
+  const build = buildIgeo7Grid(
     {
-      grid: getIgeo7GridDefinition(metadata),
+      grid,
       cellIdRanges,
       data: rawData,
+      levelOffset,
+      missingValue,
+      fillValue,
       batchSize: BATCH_SIZE,
       projectionType: helper.type,
       projectionCenter: { lat: helper.center.lat, lon: helper.center.lon },
     },
     {
-      onMetadata: () => undefined,
-      onBatch: (batch) => batches.push(batch),
+      onMetadata: ({ extentLatLon }) => {
+        if (isCurrent()) {
+          fitCameraToExtent(extentLatLon);
+        }
+      },
+      // Batches arriving after the scalar is on screen are drawn right away.
+      onBatch: (batch) => {
+        batches.push(batch);
+        if (displayed && isCurrent()) {
+          updateBatchMesh(batch);
+          updateColormap(meshes);
+          updateMeshProjectionUniforms();
+        }
+      },
     }
   );
-  const hoverIndex = createSerializedGeoSampleIndex(result.hoverIndexData);
-  if (!isCurrent()) {
-    return;
-  }
-  const dimInfo = await getDimensionValues(dimensionRanges, indices);
-  if (!isCurrent()) {
-    return;
-  }
   scalarCache.captureScalar({
     render: () => {
-      cleanupMeshes(batches.length);
+      removeMeshes();
       batches.forEach(updateBatchMesh);
+      displayed = true;
       updateMeshProjectionUniforms();
-      fitCameraToDataset(meshes);
-      setHoverLookupFromIndex(hoverIndex, fillValue, missingValue);
     },
     info: {
-      attrs: datavar.attrs,
+      attrs: getDisplayedAttributes(datavar.attrs, grid.level, levelOffset),
       dimInfo,
       bounds: { low: min, high: max },
       dimRanges: dimensionRanges,
@@ -301,7 +346,14 @@ async function fetchAndRenderData(
     fillValue,
     isCurrent,
   });
-  await scalarCache.restoreScalar();
+  const [result] = await Promise.all([build, scalarCache.restoreScalar()]);
+  if (isCurrent()) {
+    setHoverLookupFromIndex(
+      createSerializedGeoSampleIndex(result.hoverIndexData),
+      fillValue,
+      missingValue
+    );
+  }
 }
 
 onBeforeMount(async () => {

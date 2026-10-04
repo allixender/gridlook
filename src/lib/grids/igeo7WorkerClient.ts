@@ -2,31 +2,18 @@ import {
   copyGridWorkerArray,
   createGridGeometryWorkerClient,
 } from "./gridGeometryWorkerClient.ts";
-import {
-  GridGeometryWorkerMessageType,
-  type TGridGeometryWorkerMetadata,
-} from "./gridGeometryWorkerProtocol.ts";
+import { GridGeometryWorkerMessageType } from "./gridGeometryWorkerProtocol.ts";
 import type { TGridGeometryBatch } from "./gridWorkerTypes.ts";
-import type { TIgeo7GridDefinition } from "./igeo7Calculations.ts";
-import type { TIgeo7WorkerRequest } from "./igeo7WorkerProtocol.ts";
-
 import type {
-  TProjectionCenter,
-  TProjectionType,
-} from "@/lib/projection/projectionUtils.ts";
+  TIgeo7WorkerMetadata,
+  TIgeo7WorkerRequest,
+} from "./igeo7WorkerProtocol.ts";
 
-type TIgeo7BuildRequest = {
-  grid: TIgeo7GridDefinition;
-  cellIdRanges: BigUint64Array;
-  data: Float32Array;
-  batchSize: number;
-  projectionType: TProjectionType;
-  projectionCenter: TProjectionCenter;
-};
+type TIgeo7BuildRequest = Omit<TIgeo7WorkerRequest, "requestId" | "type">;
 
 const client = createGridGeometryWorkerClient<
   TIgeo7WorkerRequest,
-  TGridGeometryWorkerMetadata
+  TIgeo7WorkerMetadata
 >(
   () =>
     new Worker(new URL("./igeo7.worker.ts", import.meta.url), {
@@ -37,7 +24,7 @@ const client = createGridGeometryWorkerClient<
 export function buildIgeo7Grid(
   request: TIgeo7BuildRequest,
   callbacks: {
-    onMetadata: (metadata: TGridGeometryWorkerMetadata) => void;
+    onMetadata: (metadata: TIgeo7WorkerMetadata) => void;
     onBatch: (batch: TGridGeometryBatch) => void;
   }
 ) {

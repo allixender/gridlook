@@ -166,6 +166,141 @@ export function expandIgeo7Ranges(index: TIgeo7RangeIndex) {
   return cellIds;
 }
 
+function countCoarseCells(index: TIgeo7RangeIndex, divisor: number) {
+  let count = 0;
+  let previousLast = -1;
+  for (
+    let rangeIndex = 0;
+    rangeIndex < index.startMonotonic.length;
+    rangeIndex++
+  ) {
+    const first = Math.floor(index.startMonotonic[rangeIndex] / divisor);
+    const last = Math.floor(index.endMonotonic[rangeIndex] / divisor);
+    count += last - first + (first === previousLast ? 0 : 1);
+    previousLast = last;
+  }
+  return count;
+}
+
+/**
+ * Number of refinement levels to go up so that at most `maxCells` cells
+ * remain. Every level up merges the seven children of a cell.
+ */
+export function chooseIgeo7LevelOffset(
+  index: TIgeo7RangeIndex,
+  maxCells: number
+) {
+  for (let levelOffset = 0; levelOffset < index.level; levelOffset++) {
+    if (countCoarseCells(index, 7 ** levelOffset) <= maxCells) {
+      return levelOffset;
+    }
+  }
+  return index.level;
+}
+
+function coarsenRanges(
+  index: TIgeo7RangeIndex,
+  levelOffset: number
+): TIgeo7RangeIndex {
+  const divisor = 7 ** levelOffset;
+  const starts: number[] = [];
+  const ends: number[] = [];
+  for (
+    let rangeIndex = 0;
+    rangeIndex < index.startMonotonic.length;
+    rangeIndex++
+  ) {
+    const first = Math.floor(index.startMonotonic[rangeIndex] / divisor);
+    const last = Math.floor(index.endMonotonic[rangeIndex] / divisor);
+    // Ranges that share or neighbour a parent continue the previous run.
+    if (ends.length > 0 && first <= ends[ends.length - 1] + 1) {
+      ends[ends.length - 1] = last;
+    } else {
+      starts.push(first);
+      ends.push(last);
+    }
+  }
+  const offsets = new Float64Array(starts.length + 1);
+  for (let rangeIndex = 0; rangeIndex < starts.length; rangeIndex++) {
+    offsets[rangeIndex + 1] =
+      offsets[rangeIndex] + (ends[rangeIndex] - starts[rangeIndex] + 1);
+  }
+  return {
+    level: index.level - levelOffset,
+    startMonotonic: Float64Array.from(starts),
+    endMonotonic: Float64Array.from(ends),
+    offsets,
+    cellCount: offsets[starts.length],
+  };
+}
+
+function averageByParent(
+  index: TIgeo7RangeIndex,
+  coarse: TIgeo7RangeIndex,
+  data: Float32Array,
+  missingValue: number,
+  fillValue: number
+) {
+  const divisor = 7 ** (index.level - coarse.level);
+  const sums = new Float64Array(coarse.cellCount);
+  const counts = new Uint32Array(coarse.cellCount);
+  let coarseRange = 0;
+  for (
+    let rangeIndex = 0;
+    rangeIndex < index.startMonotonic.length;
+    rangeIndex++
+  ) {
+    const start = index.startMonotonic[rangeIndex];
+    const end = index.endMonotonic[rangeIndex];
+    while (Math.floor(start / divisor) > coarse.endMonotonic[coarseRange]) {
+      coarseRange++;
+    }
+    // Position of a parent = this base + its monotonic value.
+    const base =
+      coarse.offsets[coarseRange] - coarse.startMonotonic[coarseRange];
+    for (let monotonic = start; monotonic <= end; monotonic++) {
+      const value = data[index.offsets[rangeIndex] + (monotonic - start)];
+      if (
+        Number.isNaN(value) ||
+        value === missingValue ||
+        value === fillValue
+      ) {
+        continue;
+      }
+      const parent = base + Math.floor(monotonic / divisor);
+      sums[parent] += value;
+      counts[parent]++;
+    }
+  }
+  const means = new Float32Array(coarse.cellCount);
+  for (let parent = 0; parent < means.length; parent++) {
+    means[parent] = counts[parent] > 0 ? sums[parent] / counts[parent] : NaN;
+  }
+  return means;
+}
+
+/**
+ * Replace the cells by their ancestors `levelOffset` levels up, each carrying
+ * the mean of the valid values of its descendants in the data. Cells are equal
+ * in area, so this is the area-weighted mean.
+ */
+export function coarsenIgeo7Cells(
+  index: TIgeo7RangeIndex,
+  data: Float32Array,
+  levelOffset: number,
+  missingValue = NaN,
+  fillValue = NaN
+) {
+  if (levelOffset === 0) {
+    return { index, data };
+  }
+  const coarse = coarsenRanges(index, levelOffset);
+  return {
+    index: coarse,
+    data: averageByParent(index, coarse, data, missingValue, fillValue),
+  };
+}
+
 function toCartesian(rings: TIgeo7CellRings, corner: number) {
   const latitude = (rings.latitudes[corner] * Math.PI) / 180;
   const longitude = (rings.longitudes[corner] * Math.PI) / 180;
@@ -223,18 +358,18 @@ function fillCell(
   target.vertex += cornerCount;
 }
 
-/** One polygon per cell, all corners of a cell carrying the cell value. */
+/**
+ * One polygon per cell of the batch, all corners of a cell carrying the cell
+ * value. `rings` and `data` describe the cells of this batch only.
+ */
 export function buildIgeo7Batch(
   rings: TIgeo7CellRings,
   data: Float32Array,
   batchIndex: number,
-  batchSize: number,
   projection: ProjectionHelper
 ): TGridGeometryBatch {
-  const cellStart = batchIndex * batchSize;
-  const cellEnd = Math.min(cellStart + batchSize, data.length);
-  const vertexCount = rings.offsets[cellEnd] - rings.offsets[cellStart];
-  const triangleCount = vertexCount - 2 * (cellEnd - cellStart);
+  const vertexCount = rings.offsets[data.length];
+  const triangleCount = vertexCount - 2 * data.length;
   const batch: TGridGeometryBatch = {
     batchIndex,
     positionValues: new Float32Array(vertexCount * 3),
@@ -243,7 +378,7 @@ export function buildIgeo7Batch(
     indices: new Uint32Array(triangleCount * 3),
   };
   const target = { vertex: 0, index: 0 };
-  for (let cell = cellStart; cell < cellEnd; cell++) {
+  for (let cell = 0; cell < data.length; cell++) {
     fillCell(rings, projection, cell, data[cell], batch, target);
   }
   return batch;

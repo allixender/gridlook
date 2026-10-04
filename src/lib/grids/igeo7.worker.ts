@@ -4,6 +4,7 @@ import { buildSerializedGeoSampleIndexData } from "./gridWorkerCalculations.ts";
 import {
   buildIgeo7Batch,
   buildIgeo7RangeIndex,
+  coarsenIgeo7Cells,
   expandIgeo7Ranges,
   getIgeo7BatchCount,
   type TIgeo7GridDefinition,
@@ -46,59 +47,88 @@ function postResponse(
   postGridGeometryResponse(workerScope, response, transfer);
 }
 
-async function buildCellGeometry(request: TIgeo7WorkerRequest) {
-  const { level } = request.grid;
-  const index = buildIgeo7RangeIndex(request.cellIdRanges, level);
+const EXTENT_SAMPLE_COUNT = 256;
+
+function getDisplayedCells(request: TIgeo7WorkerRequest) {
+  const index = buildIgeo7RangeIndex(request.cellIdRanges, request.grid.level);
   if (index.cellCount !== request.data.length) {
     throw new Error(
       `IGEO7 cell id ranges describe ${index.cellCount} cells but data has ${request.data.length} values.`
     );
   }
-  const cellIds = expandIgeo7Ranges(index);
-  const engine = await getEngine(request.grid);
+  const displayed = coarsenIgeo7Cells(
+    index,
+    request.data,
+    request.levelOffset,
+    request.missingValue,
+    request.fillValue
+  );
   return {
-    centres: buildIgeo7Centroids(engine, cellIds, level),
-    rings: buildIgeo7CellRings(engine, cellIds, level),
+    level: displayed.index.level,
+    cellIds: expandIgeo7Ranges(displayed.index),
+    data: displayed.data,
   };
 }
 
+function buildExtentSample(
+  engine: TIgeo7Engine,
+  cellIds: BigUint64Array,
+  level: number
+) {
+  const stride = Math.ceil(cellIds.length / EXTENT_SAMPLE_COUNT);
+  const sample = cellIds.filter((_, cell) => cell % stride === 0);
+  const { latitudes, longitudes } = buildIgeo7Centroids(engine, sample, level);
+  const latLon = new Float32Array(sample.length * 2);
+  for (let cell = 0; cell < sample.length; cell++) {
+    latLon[cell * 2] = latitudes[cell];
+    latLon[cell * 2 + 1] = longitudes[cell];
+  }
+  return latLon;
+}
+
 async function buildGrid(request: TIgeo7WorkerRequest) {
-  const { centres, rings } = await buildCellGeometry(request);
-  const totalBatches = getIgeo7BatchCount(
-    request.data.length,
-    request.batchSize
-  );
-  postResponse({
-    requestId: request.requestId,
-    type: GridGeometryWorkerMessageType.METADATA,
-    metadata: { totalBatches },
-  });
-  postGridGeometryHoverIndex(
-    workerScope,
-    request.requestId,
-    buildSerializedGeoSampleIndexData(
-      centres.latitudes,
-      centres.longitudes,
-      request.data.slice()
-    )
+  const { level, cellIds, data } = getDisplayedCells(request);
+  const engine = await getEngine(request.grid);
+  const totalBatches = getIgeo7BatchCount(cellIds.length, request.batchSize);
+  const extentLatLon = buildExtentSample(engine, cellIds, level);
+  postResponse(
+    {
+      requestId: request.requestId,
+      type: GridGeometryWorkerMessageType.METADATA,
+      metadata: { totalBatches, extentLatLon },
+    },
+    [extentLatLon.buffer]
   );
   const projection = new ProjectionHelper(
     request.projectionType,
     request.projectionCenter
   );
+  const latitudes = new Float64Array(cellIds.length);
+  const longitudes = new Float64Array(cellIds.length);
+  // Batches are posted as soon as they are built, so they can be drawn
+  // while the geometry of the remaining cells is still being computed.
   for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+    const start = batchIndex * request.batchSize;
+    const batchIds = cellIds.subarray(start, start + request.batchSize);
+    const centres = buildIgeo7Centroids(engine, batchIds, level);
+    latitudes.set(centres.latitudes, start);
+    longitudes.set(centres.longitudes, start);
     postGridGeometryBatch(
       workerScope,
       request.requestId,
       buildIgeo7Batch(
-        rings,
-        request.data,
+        buildIgeo7CellRings(engine, batchIds, level),
+        data.subarray(start, start + request.batchSize),
         batchIndex,
-        request.batchSize,
         projection
       )
     );
   }
+  postGridGeometryHoverIndex(
+    workerScope,
+    request.requestId,
+    buildSerializedGeoSampleIndexData(latitudes, longitudes, data.slice())
+  );
   postResponse({
     requestId: request.requestId,
     type: GridGeometryWorkerMessageType.DONE,
