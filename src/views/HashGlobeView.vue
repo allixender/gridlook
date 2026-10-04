@@ -16,9 +16,9 @@ import type { TURLParameterValues } from "@/utils/urlParams.ts";
 type TParams = Partial<Record<TURLParameterValues, string>>;
 
 const DEFAULT_DATASET =
-  "https://storage.googleapis.com/cmip6/CMIP6/ScenarioMIP/AWI/AWI-CM-1-1-MR/ssp585/r1i1p1f1/day/sfcWind/gn/v20190529/";
+  "https://storage.googleapis.com/geo-assets/dggs-dev/gridlook-igeo7/global_z7_r4_ranges.zarr";
 
-const DEFAULT_CATALOG = "static/catalog.json";
+const DEFAULT_CATALOG = "static/igeo7-catalog.json";
 
 const defaultSrc = ref(DEFAULT_DATASET);
 const src = ref(DEFAULT_DATASET);
