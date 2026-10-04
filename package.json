@@ -1,7 +1,7 @@
 {
   "name": "gridlook",
   "version": "1.6.1",
-  "license": "MIT",
+  "license": "AGPL-3.0-or-later",
   "scripts": {
     "dev": "vite --port 3000",
     "build": "vue-tsc -b && vite build",

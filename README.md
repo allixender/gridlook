@@ -4,6 +4,12 @@ Gridlook is a WebGL-based viewer for Earth system model (ESM) output. It support
 
 ![](docs/assets/showcase.webp)
 
+## About this fork
+
+This fork ([allixender/gridlook](https://github.com/allixender/gridlook), branch `feat/igeo7-z7-ranges`) adds the grid type `igeo7` for ranges-indexed IGEO7/Z7 Zarr archives, see [docs/grid-types.md](docs/grid-types.md). A demo with four example archives is at https://allixender.github.io/gridlook/.
+
+**Licence of this fork:** the cell geometry is computed in the browser by [DGGRID](https://github.com/sahrk/DGGRID), which is bundled through [webDggrid](https://github.com/am2222/webDggrid) and is licensed under the GNU Affero General Public License, version 3 or later. This fork, including its built application, is therefore distributed as a whole under the GNU Affero General Public License, version 3 or later ([LICENSE](LICENSE)). The original Gridlook code is copyright of the Max Planck Institute for Meteorology and the German Climate Computing Center and remains available under the MIT licence ([LICENSE-MIT](LICENSE-MIT)); the upstream project is [d70-t/gridlook](https://github.com/d70-t/gridlook).
+
 ## Try It Live
 
 Try out the example dataset:

@@ -62,6 +62,17 @@ watch(visible, async (newVal) => {
       Developed by Max-Planck-Institute for Meteorology (MPI-M) and the German
       Climate Computing Center (DKRZ)
     </p>
+    <p class="mt-3">
+      This build is a fork with support for IGEO7 grids. It includes DGGRID and
+      is distributed under the GNU Affero General Public License, version 3 or
+      later. Source code:
+      <a
+        href="https://github.com/allixender/gridlook/tree/feat/igeo7-z7-ranges"
+        target="_blank"
+        rel="noopener noreferrer"
+        >github.com/allixender/gridlook</a
+      >.
+    </p>
     <p class="mt-3 is-size-7 has-text-grey">Earth texture credit: NASA.</p>
     <template #footer>
       <p>
