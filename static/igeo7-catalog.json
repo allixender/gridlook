@@ -1,0 +1,30 @@
+{
+  "type": "gridlook_catalog",
+  "title": "IGEO7 / Z7 ranges-indexed Zarr demo",
+  "datasets": [
+    {
+      "title": "Global random noise, IGEO7 level 4",
+      "url": "https://storage.googleapis.com/geo-assets/dggs-dev/gridlook-igeo7/global_z7_r4_ranges.zarr",
+      "tag": "igeo7",
+      "description": "All 24 012 cells of refinement level 4 (12 pentagons), stored as a single cell id range. Synthetic values between 1 and 20."
+    },
+    {
+      "title": "Global random noise, IGEO7 level 5",
+      "url": "https://storage.googleapis.com/geo-assets/dggs-dev/gridlook-igeo7/global_z7_r5_ranges.zarr",
+      "tag": "igeo7",
+      "description": "All 168 072 cells of refinement level 5, stored as a single cell id range. Synthetic values between 1 and 20. Takes about half a minute to draw."
+    },
+    {
+      "title": "Porijõgi catchment elevation, IGEO7 level 10",
+      "url": "https://storage.googleapis.com/geo-assets/dggs-dev/gridlook-igeo7/pori_z7_r10_ranges.zarr",
+      "tag": "igeo7",
+      "description": "3 101 cells in south-east Estonia in 136 cell id ranges, with elevation and slope. Small and quick to load."
+    },
+    {
+      "title": "Estonia elevation statistics, IGEO7 level 12",
+      "url": "https://storage.googleapis.com/geo-assets/dggs-dev/gridlook-igeo7/eesti_z7_r12_ranges.zarr",
+      "tag": "igeo7",
+      "description": "11.85 million cells in 39 697 cell id ranges. Drawn at level 10 as the mean of the level 12 cells; about 32 MB per variable and about a minute to draw."
+    }
+  ]
+}
