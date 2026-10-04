@@ -6,6 +6,8 @@ import {
   buildIgeo7RangeIndex,
   expandIgeo7Ranges,
   getIgeo7GridDefinition,
+  isIgeo7PhantomSlot,
+  monotonicToZ7,
 } from "@/lib/grids/igeo7Calculations.ts";
 import {
   buildIgeo7CellRings,
@@ -98,4 +100,38 @@ it("returns the corners of the reference hexagons", async () => {
       expect(distances.some((distance) => distance < 1e-8)).toBe(true);
     }
   });
+});
+
+it("agrees with DGGRID on which slots of the number line are cells", async () => {
+  const engine = (await loadIgeo7Engine(grid)) as Awaited<
+    ReturnType<typeof loadIgeo7Engine>
+  > & { sequenceNumToZ7(sequenceNum: bigint, resolution: number): bigint };
+  const globalLevel = 3;
+  let cells = 0;
+  const outcomes = new Map<string, number>();
+
+  for (let slot = 0; slot < 12 * 7 ** globalLevel; slot++) {
+    const z7 = monotonicToZ7(slot, globalLevel);
+    let outcome = "throws";
+    try {
+      const sequenceNum = engine.z7ToSequenceNum(z7, globalLevel);
+      const back = BigInt.asUintN(
+        64,
+        engine.sequenceNumToZ7(sequenceNum, globalLevel)
+      );
+      outcome = back === z7 ? "cell" : "other cell";
+    } catch {
+      // DGGRID rejects the id
+    }
+    const phantom = isIgeo7PhantomSlot(slot, globalLevel);
+    outcomes.set(
+      `${phantom ? "phantom" : "real"}: ${outcome}`,
+      (outcomes.get(`${phantom ? "phantom" : "real"}: ${outcome}`) ?? 0) + 1
+    );
+    cells += phantom ? 0 : 1;
+  }
+
+  expect(cells).toBe(10 * 7 ** globalLevel + 2);
+  expect(outcomes.get("real: cell")).toBe(cells);
+  expect(outcomes.get("phantom: cell")).toBeUndefined();
 });

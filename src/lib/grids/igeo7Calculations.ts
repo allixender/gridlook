@@ -7,6 +7,8 @@ import type { TZarrDggsMetadata } from "@/lib/types/GlobeTypes.ts";
 const Z7_DIGIT_COUNT = 20;
 const Z7_PADDING_DIGIT = 7;
 const Z7_BASE_CELL_COUNT = 12;
+// Child direction that does not exist below each of the 12 pentagon base cells.
+const Z7_EXCLUDED_DIGIT = [2, 2, 2, 2, 2, 2, 5, 5, 5, 5, 5, 5];
 // Monotonic integers are kept as Number, which is exact up to 2^53.
 // 12 * 7^level exceeds that above level 16.
 const MAX_MONOTONIC_LEVEL = 16;
@@ -164,6 +166,48 @@ export function expandIgeo7Ranges(index: TIgeo7RangeIndex) {
     }
   }
   return cellIds;
+}
+
+/**
+ * A pentagon has six children, not seven. The number line still reserves the
+ * positions below the missing child, and a range that crosses them stores a
+ * fill value there. Such a slot is recognised by its first non-zero digit.
+ */
+export function isIgeo7PhantomSlot(monotonic: number, level: number) {
+  let scale = 7 ** level;
+  const excluded = Z7_EXCLUDED_DIGIT[Math.floor(monotonic / scale)];
+  for (let digitIndex = 1; digitIndex <= level; digitIndex++) {
+    scale /= 7;
+    const digit = Math.floor(monotonic / scale) % 7;
+    if (digit !== 0) {
+      return digit === excluded;
+    }
+  }
+  return false;
+}
+
+/** Packed Z7 ids and values of the cells that exist, in data order. */
+export function getIgeo7Cells(index: TIgeo7RangeIndex, data: Float32Array) {
+  const cellIds = new BigUint64Array(index.cellCount);
+  const values = new Float32Array(index.cellCount);
+  let cell = 0;
+  for (
+    let rangeIndex = 0;
+    rangeIndex < index.startMonotonic.length;
+    rangeIndex++
+  ) {
+    const start = index.startMonotonic[rangeIndex];
+    const end = index.endMonotonic[rangeIndex];
+    for (let monotonic = start; monotonic <= end; monotonic++) {
+      if (isIgeo7PhantomSlot(monotonic, index.level)) {
+        continue;
+      }
+      cellIds[cell] = monotonicToZ7(monotonic, index.level);
+      values[cell] = data[index.offsets[rangeIndex] + (monotonic - start)];
+      cell++;
+    }
+  }
+  return { cellIds: cellIds.subarray(0, cell), data: values.subarray(0, cell) };
 }
 
 function countCoarseCells(index: TIgeo7RangeIndex, divisor: number) {

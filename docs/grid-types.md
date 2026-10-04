@@ -52,7 +52,9 @@ selected data variable in order:
    `name` is `igeo7` and `compression` is `ranges`, the grid is `igeo7`: the
    variable named by `coordinate` then holds an `(R, 2)` table of inclusive
    `[start, end]` packed Z7 cell ids, and the data variables list the cells of
-   those ranges in order. Each cell is drawn as its hexagon (or pentagon).
+   those ranges in order. A range that crosses the missing child of one of the
+   12 pentagons reserves data positions for cells that do not exist; these
+   positions are skipped. Each cell is drawn as its hexagon (or pentagon).
    Archives with more than 250 000 cells are drawn at the finest ancestor
    level that stays below that number, each ancestor cell showing the mean of
    its descendants in the data.

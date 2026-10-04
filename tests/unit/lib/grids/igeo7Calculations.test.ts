@@ -9,7 +9,9 @@ import {
   coarsenIgeo7Cells,
   expandIgeo7Ranges,
   getIgeo7BatchCount,
+  getIgeo7Cells,
   getIgeo7GridDefinition,
+  isIgeo7PhantomSlot,
   monotonicToZ7,
   z7ToMonotonic,
 } from "@/lib/grids/igeo7Calculations.ts";
@@ -98,6 +100,61 @@ it("requires the icosahedron orientation", () => {
   const metadata = { ...dggs, ["dggs_vert0_lon"]: undefined };
 
   expect(() => getIgeo7GridDefinition(metadata)).toThrow("dggs_vert0_lon");
+});
+
+function globalIndex(globalLevel: number) {
+  return buildIgeo7RangeIndex(
+    BigUint64Array.of(
+      monotonicToZ7(0, globalLevel),
+      monotonicToZ7(12 * 7 ** globalLevel - 1, globalLevel)
+    ),
+    globalLevel
+  );
+}
+
+it("leaves 10 * 7^L + 2 cells on the global number line", () => {
+  for (const globalLevel of [0, 1, 2, 3, 4]) {
+    const index = globalIndex(globalLevel);
+    const { cellIds, data } = getIgeo7Cells(
+      index,
+      new Float32Array(index.cellCount)
+    );
+
+    expect(index.cellCount).toBe(12 * 7 ** globalLevel);
+    expect(cellIds).toHaveLength(10 * 7 ** globalLevel + 2);
+    expect(data).toHaveLength(cellIds.length);
+  }
+});
+
+it("skips the slots below the missing child of a pentagon", () => {
+  // Base cell 0 lacks child 2, base cell 6 lacks child 5.
+  expect(isIgeo7PhantomSlot(2, 1)).toBe(true);
+  expect(isIgeo7PhantomSlot(2 * 7 + 3, 2)).toBe(true);
+  expect(isIgeo7PhantomSlot(2, 2)).toBe(true);
+  expect(isIgeo7PhantomSlot(3 * 7 + 2, 2)).toBe(false);
+  expect(isIgeo7PhantomSlot(6 * 7 + 5, 1)).toBe(true);
+  expect(isIgeo7PhantomSlot(6 * 7 + 2, 1)).toBe(false);
+  expect(isIgeo7PhantomSlot(0, 3)).toBe(false);
+
+  const index = globalIndex(1);
+  const values = Float32Array.from({ length: 84 }, (_, slot) => slot);
+  const { cellIds, data } = getIgeo7Cells(index, values);
+
+  expect(Array.from(data.slice(0, 7))).toEqual([0, 1, 3, 4, 5, 6, 7]);
+  expect(cellIds[2]).toBe(monotonicToZ7(3, 1));
+});
+
+it("keeps ids and values of regional data unchanged", () => {
+  const index = buildIgeo7RangeIndex(rangeTable, level);
+  const values = Float32Array.from(
+    { length: index.cellCount },
+    (_, cell) => cell
+  );
+
+  const { cellIds, data } = getIgeo7Cells(index, values);
+
+  expect(Array.from(cellIds)).toEqual(Array.from(expandIgeo7Ranges(index)));
+  expect(Array.from(data)).toEqual(Array.from(values));
 });
 
 it("goes up the fewest levels that fit the cell budget", () => {

@@ -5,8 +5,8 @@ import {
   buildIgeo7Batch,
   buildIgeo7RangeIndex,
   coarsenIgeo7Cells,
-  expandIgeo7Ranges,
   getIgeo7BatchCount,
+  getIgeo7Cells,
   type TIgeo7GridDefinition,
 } from "./igeo7Calculations.ts";
 import {
@@ -65,8 +65,7 @@ function getDisplayedCells(request: TIgeo7WorkerRequest) {
   );
   return {
     level: displayed.index.level,
-    cellIds: expandIgeo7Ranges(displayed.index),
-    data: displayed.data,
+    ...getIgeo7Cells(displayed.index, displayed.data),
   };
 }
 
