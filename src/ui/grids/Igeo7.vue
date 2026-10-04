@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { storeToRefs } from "pinia";
 import * as THREE from "three";
-import { computed, onBeforeMount, onBeforeUnmount, ref } from "vue";
+import { computed, onBeforeMount, onBeforeUnmount } from "vue";
 import * as zarr from "zarrita";
 
 import { useGridHoverLookup } from "./composables/gridHoverUtils.ts";
@@ -19,7 +19,7 @@ import {
   getGridVariableData,
   terminateGridDataWorker,
 } from "@/lib/grids/gridDataWorkerClient.ts";
-import type { TGridPointBatch } from "@/lib/grids/gridWorkerTypes.ts";
+import type { TGridGeometryBatch } from "@/lib/grids/gridWorkerTypes.ts";
 import { getIgeo7GridDefinition } from "@/lib/grids/igeo7Calculations.ts";
 import {
   buildIgeo7Grid,
@@ -27,9 +27,12 @@ import {
 } from "@/lib/grids/igeo7WorkerClient.ts";
 import { createSerializedGeoSampleIndex } from "@/lib/grids/serializedGeoSampleIndex.ts";
 import {
-  makeGpuProjectedPointMaterial,
-  updateProjectionUniforms,
-} from "@/lib/shaders/gridShaders.ts";
+  createTriangleWrapProjectionGeometry,
+  createWrappedProjectionMesh,
+  setupProjectionGeometryWrap,
+  updateProjectionMeshes,
+} from "@/lib/projection/projectionEdgeQuality.ts";
+import { makeInvertableGpuMeshMaterial } from "@/lib/shaders/gridShaders.ts";
 import type {
   TDimensionRange,
   TSources,
@@ -49,26 +52,24 @@ const urlParameterStore = useUrlParameterStore();
 const { paramDimIndices, paramDimMinBounds, paramDimMaxBounds } =
   storeToRefs(urlParameterStore);
 
-const estimatedSpacing = ref(0);
-const BATCH_SIZE = 500000;
-const MIN_POINT_SIZE = 1.5;
-const MAX_POINT_SIZE = 64;
-let points: THREE.Points[] = [];
+// Cells per mesh.
+const BATCH_SIZE = 100000;
+let meshes: THREE.Mesh[] = [];
 
 const {
   getScene,
-  getCamera,
   makeSnapshot,
   toggleRotate,
   applyCameraPreset,
   fitCameraToDataset,
   getDataVar,
   fetchDimensionDetails,
-  registerUpdateLOD,
   updateLandSeaMask,
   updateColormap,
   projectionHelper,
+  isSceneInMotion,
   onProjectionChange,
+  onMotionStateChange,
   onColormapChange,
   redraw,
   canvas,
@@ -80,29 +81,30 @@ const {
 const { setHoverLookupFromIndex, clearHoverLookup } =
   useGridHoverLookup(hoveredGeoPoint);
 
-onColormapChange(() => updateColormap(points));
-onProjectionChange(updatePointsProjectionUniforms);
+onColormapChange(() => updateColormap(meshes));
+onProjectionChange(updateMeshProjectionUniforms);
+onMotionStateChange(updateMeshProjectionUniforms);
 
-function updatePointsProjectionUniforms() {
-  const helper = projectionHelper.value;
-  for (const pointBatch of points) {
-    const material = pointBatch.material as THREE.ShaderMaterial;
-    if (material.uniforms?.projectionType) {
-      updateProjectionUniforms(material, helper);
-    }
-  }
-  redraw();
+function updateMeshProjectionUniforms() {
+  updateProjectionMeshes(meshes, {
+    redraw,
+    projectionHelper: projectionHelper.value,
+    isSceneInMotion: isSceneInMotion.value,
+  });
 }
 
 const colormapMaterial = computed(() => {
-  return invertColormap.value
-    ? makeGpuProjectedPointMaterial(colormap.value, 1.0, -1.0)
-    : makeGpuProjectedPointMaterial(colormap.value, 0.0, 1.0);
+  const material = makeInvertableGpuMeshMaterial(
+    colormap.value,
+    invertColormap.value
+  );
+  material.uniforms.useTriangleWrapCull.value = 1;
+  return material;
 });
 
 const scalarCache = useScalarFieldCache({
   updateHistogram,
-  updateColormap: () => updateColormap(points),
+  updateColormap: () => updateColormap(meshes),
   redraw,
 });
 
@@ -113,66 +115,54 @@ const { datasourceUpdate } = useGridDataLoader({
   scalarCache,
   clearHoverLookup,
   updateLandSeaMask,
-  updateColormap: () => updateColormap(points),
+  updateColormap: () => updateColormap(meshes),
 });
 
-function cleanupPoints(totalBatches: number) {
-  if (points.length <= totalBatches) {
+function cleanupMeshes(totalBatches: number) {
+  if (meshes.length <= totalBatches) {
     return;
   }
-  for (const pointBatch of points) {
-    pointBatch.geometry.dispose();
-    getScene()?.remove(pointBatch);
+  for (const mesh of meshes) {
+    mesh.geometry.dispose();
+    getScene()?.remove(mesh);
   }
-  points.length = 0;
+  meshes.length = 0;
 }
 
-function updateBatch(batch: TGridPointBatch) {
-  const geometry = new THREE.BufferGeometry();
+function createBatchGeometry(batch: TGridGeometryBatch) {
+  const geometry = new THREE.InstancedBufferGeometry();
   geometry.setAttribute(
     "position",
     new THREE.BufferAttribute(batch.positionValues, 3)
   );
   geometry.setAttribute(
-    "latLon",
-    new THREE.BufferAttribute(batch.latLonValues, 2)
-  );
-  geometry.setAttribute(
     "data_value",
     new THREE.BufferAttribute(batch.dataValues, 1)
   );
-  geometry.computeBoundingSphere();
-  if (points[batch.batchIndex]) {
-    points[batch.batchIndex].geometry.dispose();
-    points[batch.batchIndex].geometry = geometry;
-    return;
-  }
-  const pointBatch = new THREE.Points(geometry, colormapMaterial.value);
-  pointBatch.frustumCulled = false;
-  points.push(pointBatch);
-  getScene()?.add(pointBatch);
+  geometry.setAttribute(
+    "latLon",
+    new THREE.BufferAttribute(batch.latLonValues, 2)
+  );
+  geometry.setIndex(new THREE.BufferAttribute(batch.indices, 1));
+  return createTriangleWrapProjectionGeometry(geometry);
 }
 
-// Cells are far smaller than the globe, so a point is sized to cover the
-// on-screen extent of one cell at the current camera altitude.
-function updateLOD() {
-  const camera = getCamera();
-  if (!camera || !canvas.value) {
+function updateBatchMesh(batch: TGridGeometryBatch) {
+  const geometry = createBatchGeometry(batch);
+  setupProjectionGeometryWrap(geometry);
+  if (meshes[batch.batchIndex]) {
+    meshes[batch.batchIndex].geometry.dispose();
+    meshes[batch.batchIndex].geometry = geometry;
     return;
   }
-  const altitude = projectionHelper.value.isFlat
-    ? camera.position.z
-    : camera.position.length() - 1;
-  const visibleHeight =
-    2 * altitude * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
-  const pointSize =
-    (estimatedSpacing.value * canvas.value.height) / visibleHeight;
-  for (const pointBatch of points) {
-    const material = pointBatch.material as THREE.ShaderMaterial;
-    material.uniforms.basePointSize.value = pointSize;
-    material.uniforms.minPointSize.value = MIN_POINT_SIZE;
-    material.uniforms.maxPointSize.value = MAX_POINT_SIZE;
-  }
+  const mesh = createWrappedProjectionMesh(
+    geometry,
+    colormapMaterial.value,
+    projectionHelper.value.type
+  );
+  mesh.frustumCulled = false;
+  meshes.push(mesh);
+  getScene()?.add(mesh);
 }
 
 async function getDggsMetadata() {
@@ -268,8 +258,7 @@ async function fetchAndRenderData(
     rawData
   );
   const helper = projectionHelper.value;
-  const batches: TGridPointBatch[] = [];
-  let spacing = estimatedSpacing.value;
+  const batches: TGridGeometryBatch[] = [];
   const result = await buildIgeo7Grid(
     {
       grid: getIgeo7GridDefinition(metadata),
@@ -280,9 +269,7 @@ async function fetchAndRenderData(
       projectionCenter: { lat: helper.center.lat, lon: helper.center.lon },
     },
     {
-      onMetadata: (workerMetadata) => {
-        spacing = workerMetadata.estimatedSpacing;
-      },
+      onMetadata: () => undefined,
       onBatch: (batch) => batches.push(batch),
     }
   );
@@ -296,12 +283,10 @@ async function fetchAndRenderData(
   }
   scalarCache.captureScalar({
     render: () => {
-      cleanupPoints(batches.length);
-      batches.forEach(updateBatch);
-      estimatedSpacing.value = spacing;
-      updatePointsProjectionUniforms();
-      fitCameraToDataset(points);
-      updateLOD();
+      cleanupMeshes(batches.length);
+      batches.forEach(updateBatchMesh);
+      updateMeshProjectionUniforms();
+      fitCameraToDataset(meshes);
       setHoverLookupFromIndex(hoverIndex, fillValue, missingValue);
     },
     info: {
@@ -321,7 +306,6 @@ async function fetchAndRenderData(
 
 onBeforeMount(async () => {
   await datasourceUpdate();
-  registerUpdateLOD(updateLOD);
 });
 
 onBeforeUnmount(() => {

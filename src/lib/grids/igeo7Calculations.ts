@@ -1,3 +1,7 @@
+import { shouldFlipCartesianTriangle } from "./gridWorkerCalculations.ts";
+import type { TGridGeometryBatch } from "./gridWorkerTypes.ts";
+
+import type { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 import type { TZarrDggsMetadata } from "@/lib/types/GlobeTypes.ts";
 
 const Z7_DIGIT_COUNT = 20;
@@ -12,6 +16,14 @@ export type TIgeo7GridDefinition = {
   vert0Lon: number;
   vert0Lat: number;
   vert0Azimuth: number;
+};
+
+export type TIgeo7CellRings = {
+  // Corners of all cells, ring after ring, without a closing point.
+  latitudes: Float64Array;
+  longitudes: Float64Array;
+  // Index of the first corner of each cell, plus the total as last entry.
+  offsets: Uint32Array;
 };
 
 type TIgeo7RangeIndex = {
@@ -152,4 +164,87 @@ export function expandIgeo7Ranges(index: TIgeo7RangeIndex) {
     }
   }
   return cellIds;
+}
+
+function toCartesian(rings: TIgeo7CellRings, corner: number) {
+  const latitude = (rings.latitudes[corner] * Math.PI) / 180;
+  const longitude = (rings.longitudes[corner] * Math.PI) / 180;
+  return [
+    Math.cos(latitude) * Math.cos(longitude),
+    Math.cos(latitude) * Math.sin(longitude),
+    Math.sin(latitude),
+  ] as const;
+}
+
+/** Meshes are drawn single-sided, so corners must run counter-clockwise. */
+function isClockwise(rings: TIgeo7CellRings, cell: number) {
+  const first = rings.offsets[cell];
+  return shouldFlipCartesianTriangle(
+    ...toCartesian(rings, first),
+    ...toCartesian(rings, first + 1),
+    ...toCartesian(rings, first + 2)
+  );
+}
+
+export function getIgeo7BatchCount(cellCount: number, batchSize: number) {
+  return Math.ceil(cellCount / batchSize);
+}
+
+function fillCell(
+  rings: TIgeo7CellRings,
+  projection: ProjectionHelper,
+  cell: number,
+  value: number,
+  batch: TGridGeometryBatch,
+  target: { vertex: number; index: number }
+) {
+  const cornerCount = rings.offsets[cell + 1] - rings.offsets[cell];
+  for (let corner = 0; corner < cornerCount; corner++) {
+    const source = rings.offsets[cell] + corner;
+    projection.projectLatLonToArrays(
+      rings.latitudes[source],
+      rings.longitudes[source],
+      batch.positionValues,
+      (target.vertex + corner) * 3,
+      batch.latLonValues,
+      (target.vertex + corner) * 2
+    );
+  }
+  batch.dataValues.fill(value, target.vertex, target.vertex + cornerCount);
+  // Cells are convex, so a fan from the first corner covers them.
+  const clockwise = isClockwise(rings, cell);
+  for (let corner = 1; corner < cornerCount - 1; corner++) {
+    batch.indices[target.index++] = target.vertex;
+    batch.indices[target.index++] =
+      target.vertex + (clockwise ? corner + 1 : corner);
+    batch.indices[target.index++] =
+      target.vertex + (clockwise ? corner : corner + 1);
+  }
+  target.vertex += cornerCount;
+}
+
+/** One polygon per cell, all corners of a cell carrying the cell value. */
+export function buildIgeo7Batch(
+  rings: TIgeo7CellRings,
+  data: Float32Array,
+  batchIndex: number,
+  batchSize: number,
+  projection: ProjectionHelper
+): TGridGeometryBatch {
+  const cellStart = batchIndex * batchSize;
+  const cellEnd = Math.min(cellStart + batchSize, data.length);
+  const vertexCount = rings.offsets[cellEnd] - rings.offsets[cellStart];
+  const triangleCount = vertexCount - 2 * (cellEnd - cellStart);
+  const batch: TGridGeometryBatch = {
+    batchIndex,
+    positionValues: new Float32Array(vertexCount * 3),
+    dataValues: new Float32Array(vertexCount),
+    latLonValues: new Float32Array(vertexCount * 2),
+    indices: new Uint32Array(triangleCount * 3),
+  };
+  const target = { vertex: 0, index: 0 };
+  for (let cell = cellStart; cell < cellEnd; cell++) {
+    fillCell(rings, projection, cell, data[cell], batch, target);
+  }
+  return batch;
 }

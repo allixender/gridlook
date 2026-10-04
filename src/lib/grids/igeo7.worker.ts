@@ -1,11 +1,15 @@
 /// <reference lib="webworker" />
 
+import { buildSerializedGeoSampleIndexData } from "./gridWorkerCalculations.ts";
 import {
+  buildIgeo7Batch,
   buildIgeo7RangeIndex,
   expandIgeo7Ranges,
+  getIgeo7BatchCount,
   type TIgeo7GridDefinition,
 } from "./igeo7Calculations.ts";
 import {
+  buildIgeo7CellRings,
   buildIgeo7Centroids,
   loadIgeo7Engine,
   type TIgeo7Engine,
@@ -14,18 +18,12 @@ import type {
   TIgeo7WorkerRequest,
   TIgeo7WorkerResponse,
 } from "./igeo7WorkerProtocol.ts";
-import {
-  buildIrregularBatch,
-  buildIrregularGridData,
-  buildIrregularHoverIndexData,
-  getIrregularBatchCount,
-} from "./irregularCalculations.ts";
 
 import { GridGeometryWorkerMessageType } from "@/lib/grids/gridGeometryWorkerProtocol.ts";
 import {
+  postGridGeometryBatch,
   postGridGeometryHoverIndex,
   postGridGeometryResponse,
-  postGridPointBatch,
 } from "@/lib/grids/gridGeometryWorkerUtils.ts";
 import { ProjectionHelper } from "@/lib/projection/projectionUtils.ts";
 
@@ -48,47 +46,57 @@ function postResponse(
   postGridGeometryResponse(workerScope, response, transfer);
 }
 
-async function buildCellCentres(request: TIgeo7WorkerRequest) {
-  const index = buildIgeo7RangeIndex(request.cellIdRanges, request.grid.level);
+async function buildCellGeometry(request: TIgeo7WorkerRequest) {
+  const { level } = request.grid;
+  const index = buildIgeo7RangeIndex(request.cellIdRanges, level);
   if (index.cellCount !== request.data.length) {
     throw new Error(
       `IGEO7 cell id ranges describe ${index.cellCount} cells but data has ${request.data.length} values.`
     );
   }
-  return buildIgeo7Centroids(
-    await getEngine(request.grid),
-    expandIgeo7Ranges(index),
-    request.grid.level
-  );
+  const cellIds = expandIgeo7Ranges(index);
+  const engine = await getEngine(request.grid);
+  return {
+    centres: buildIgeo7Centroids(engine, cellIds, level),
+    rings: buildIgeo7CellRings(engine, cellIds, level),
+  };
 }
 
 async function buildGrid(request: TIgeo7WorkerRequest) {
-  const { latitudes, longitudes } = await buildCellCentres(request);
-  const cellCount = request.data.length;
-  const grid = buildIrregularGridData(
-    Float32Array.from(latitudes),
-    Float32Array.from(longitudes),
-    [cellCount],
-    [cellCount],
-    request.data,
-    new ProjectionHelper(request.projectionType, request.projectionCenter)
+  const { centres, rings } = await buildCellGeometry(request);
+  const totalBatches = getIgeo7BatchCount(
+    request.data.length,
+    request.batchSize
   );
-  const totalBatches = getIrregularBatchCount(grid, request.batchSize);
   postResponse({
     requestId: request.requestId,
     type: GridGeometryWorkerMessageType.METADATA,
-    metadata: { totalBatches, estimatedSpacing: grid.estimatedSpacing },
+    metadata: { totalBatches },
   });
   postGridGeometryHoverIndex(
     workerScope,
     request.requestId,
-    buildIrregularHoverIndexData(grid)
+    buildSerializedGeoSampleIndexData(
+      centres.latitudes,
+      centres.longitudes,
+      request.data.slice()
+    )
+  );
+  const projection = new ProjectionHelper(
+    request.projectionType,
+    request.projectionCenter
   );
   for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
-    postGridPointBatch(
+    postGridGeometryBatch(
       workerScope,
       request.requestId,
-      buildIrregularBatch(grid, batchIndex, request.batchSize)
+      buildIgeo7Batch(
+        rings,
+        request.data,
+        batchIndex,
+        request.batchSize,
+        projection
+      )
     );
   }
   postResponse({

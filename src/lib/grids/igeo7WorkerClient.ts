@@ -2,13 +2,13 @@ import {
   copyGridWorkerArray,
   createGridGeometryWorkerClient,
 } from "./gridGeometryWorkerClient.ts";
-import { GridGeometryWorkerMessageType } from "./gridGeometryWorkerProtocol.ts";
-import type { TGridPointBatch } from "./gridWorkerTypes.ts";
+import {
+  GridGeometryWorkerMessageType,
+  type TGridGeometryWorkerMetadata,
+} from "./gridGeometryWorkerProtocol.ts";
+import type { TGridGeometryBatch } from "./gridWorkerTypes.ts";
 import type { TIgeo7GridDefinition } from "./igeo7Calculations.ts";
-import type {
-  TIgeo7WorkerMetadata,
-  TIgeo7WorkerRequest,
-} from "./igeo7WorkerProtocol.ts";
+import type { TIgeo7WorkerRequest } from "./igeo7WorkerProtocol.ts";
 
 import type {
   TProjectionCenter,
@@ -26,8 +26,7 @@ type TIgeo7BuildRequest = {
 
 const client = createGridGeometryWorkerClient<
   TIgeo7WorkerRequest,
-  TIgeo7WorkerMetadata,
-  TGridPointBatch
+  TGridGeometryWorkerMetadata
 >(
   () =>
     new Worker(new URL("./igeo7.worker.ts", import.meta.url), {
@@ -38,8 +37,8 @@ const client = createGridGeometryWorkerClient<
 export function buildIgeo7Grid(
   request: TIgeo7BuildRequest,
   callbacks: {
-    onMetadata: (metadata: TIgeo7WorkerMetadata) => void;
-    onBatch: (batch: TGridPointBatch) => void;
+    onMetadata: (metadata: TGridGeometryWorkerMetadata) => void;
+    onBatch: (batch: TGridGeometryBatch) => void;
   }
 ) {
   return client.build((requestId) => {

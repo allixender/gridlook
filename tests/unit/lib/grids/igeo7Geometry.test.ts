@@ -8,6 +8,7 @@ import {
   getIgeo7GridDefinition,
 } from "@/lib/grids/igeo7Calculations.ts";
 import {
+  buildIgeo7CellRings,
   buildIgeo7Centroids,
   loadIgeo7Engine,
 } from "@/lib/grids/igeo7Geometry.ts";
@@ -65,6 +66,7 @@ it("shifts cells when the authalic conversion is skipped", async () => {
         engine.z7ToSequenceNum(z7, resolution),
       sequenceNumToGeo: (sequenceNums, resolution) =>
         engine.sequenceNumToGeo(sequenceNums, resolution),
+      sequenceNumToGrid: () => [],
       igeo7AuthalicToGeo: (latitude) => latitude,
     },
     BigUint64Array.of(BigInt(cell.z7)),
@@ -72,4 +74,28 @@ it("shifts cells when the authalic conversion is skipped", async () => {
   );
 
   expect(Math.abs(latitudes[0] - cell.lat)).toBeGreaterThan(0.1);
+});
+
+it("returns the corners of the reference hexagons", async () => {
+  const engine = await loadIgeo7Engine(grid);
+  const cellIds = BigUint64Array.from(fixture.cells, (cell) => BigInt(cell.z7));
+
+  const rings = buildIgeo7CellRings(engine, cellIds, grid.level);
+
+  expect(rings.offsets).toHaveLength(fixture.cells.length + 1);
+  fixture.cells.forEach((cell, cellIndex) => {
+    // The reference ring repeats its first corner at the end.
+    const expected = cell.ring.slice(0, -1);
+    const cornerCount = rings.offsets[cellIndex + 1] - rings.offsets[cellIndex];
+    expect(cornerCount).toBe(expected.length);
+    for (let corner = 0; corner < cornerCount; corner++) {
+      const longitude = rings.longitudes[rings.offsets[cellIndex] + corner];
+      const latitude = rings.latitudes[rings.offsets[cellIndex] + corner];
+      // Corner order and start are not part of the contract.
+      const distances = expected.map(([lon, lat]) =>
+        Math.hypot(lon - longitude, lat - latitude)
+      );
+      expect(distances.some((distance) => distance < 1e-8)).toBe(true);
+    }
+  });
 });

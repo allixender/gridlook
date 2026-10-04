@@ -52,7 +52,7 @@ selected data variable in order:
    `name` is `igeo7` and `compression` is `ranges`, the grid is `igeo7`: the
    variable named by `coordinate` then holds an `(R, 2)` table of inclusive
    `[start, end]` packed Z7 cell ids, and the data variables list the cells of
-   those ranges in order. Cells are currently drawn as points at their centres.
+   those ranges in order. Each cell is drawn as its hexagon (or pentagon).
    Other DGGS names are currently unsupported and result in `error`.
 
 4. **Dimension names**

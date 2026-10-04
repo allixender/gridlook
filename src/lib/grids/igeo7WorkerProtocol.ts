@@ -1,5 +1,7 @@
-import type { TGridGeometryWorkerResponse } from "./gridGeometryWorkerProtocol.ts";
-import type { TGridPointBatch } from "./gridWorkerTypes.ts";
+import type {
+  TGridGeometryWorkerMetadata,
+  TGridGeometryWorkerResponse,
+} from "./gridGeometryWorkerProtocol.ts";
 import type { TIgeo7GridDefinition } from "./igeo7Calculations.ts";
 
 import type {
@@ -18,12 +20,5 @@ export type TIgeo7WorkerRequest = {
   projectionCenter: TProjectionCenter;
 };
 
-export type TIgeo7WorkerMetadata = {
-  totalBatches: number;
-  estimatedSpacing: number;
-};
-
-export type TIgeo7WorkerResponse = TGridGeometryWorkerResponse<
-  TIgeo7WorkerMetadata,
-  TGridPointBatch
->;
+export type TIgeo7WorkerResponse =
+  TGridGeometryWorkerResponse<TGridGeometryWorkerMetadata>;

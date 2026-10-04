@@ -3,12 +3,18 @@ import { expect, it } from "vitest";
 import fixture from "../../../fixtures/igeo7/pori_z7_r10.json";
 
 import {
+  buildIgeo7Batch,
   buildIgeo7RangeIndex,
   expandIgeo7Ranges,
+  getIgeo7BatchCount,
   getIgeo7GridDefinition,
   monotonicToZ7,
   z7ToMonotonic,
 } from "@/lib/grids/igeo7Calculations.ts";
+import {
+  PROJECTION_TYPES,
+  ProjectionHelper,
+} from "@/lib/projection/projectionUtils.ts";
 import type { TZarrDggsMetadata } from "@/lib/types/GlobeTypes.ts";
 
 // Reference values from the Python implementation (xdggs-dggrid4py / DGGRID).
@@ -90,4 +96,62 @@ it("requires the icosahedron orientation", () => {
   const metadata = { ...dggs, ["dggs_vert0_lon"]: undefined };
 
   expect(() => getIgeo7GridDefinition(metadata)).toThrow("dggs_vert0_lon");
+});
+
+// A counter-clockwise hexagon and a clockwise pentagon around (0, 0).
+const testRings = {
+  latitudes: Float64Array.of(
+    1,
+    0.5,
+    -0.5,
+    -1,
+    -0.5,
+    0.5,
+    1,
+    0.3,
+    -0.8,
+    -0.8,
+    0.3
+  ),
+  longitudes: Float64Array.of(0, -1, -1, 0, 1, 1, 0, 1, 0.6, -0.6, -1),
+  offsets: Uint32Array.of(0, 6, 11),
+};
+const testProjection = new ProjectionHelper(
+  PROJECTION_TYPES.NEARSIDE_PERSPECTIVE,
+  { lat: 0, lon: 0 }
+);
+
+it("builds one fan of triangles per cell with the cell value", () => {
+  const batch = buildIgeo7Batch(
+    testRings,
+    Float32Array.of(10, 20),
+    0,
+    2,
+    testProjection
+  );
+
+  expect(batch.positionValues).toHaveLength(11 * 3);
+  expect(batch.latLonValues).toHaveLength(11 * 2);
+  expect(Array.from(batch.latLonValues.slice(0, 4))).toEqual([1, 0, 0.5, -1]);
+  expect(Array.from(batch.dataValues)).toEqual([
+    10, 10, 10, 10, 10, 10, 20, 20, 20, 20, 20,
+  ]);
+  expect(Array.from(batch.indices)).toEqual([
+    0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5, 6, 8, 7, 6, 9, 8, 6, 10, 9,
+  ]);
+});
+
+it("splits cells into batches with batch-local vertex indices", () => {
+  const batch = buildIgeo7Batch(
+    testRings,
+    Float32Array.of(10, 20),
+    1,
+    1,
+    testProjection
+  );
+
+  expect(getIgeo7BatchCount(2, 1)).toBe(2);
+  expect(batch.batchIndex).toBe(1);
+  expect(Array.from(batch.dataValues)).toEqual([20, 20, 20, 20, 20]);
+  expect(Array.from(batch.indices)).toEqual([0, 2, 1, 0, 3, 2, 0, 4, 3]);
 });
