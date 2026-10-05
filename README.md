@@ -10,7 +10,16 @@ This fork ([allixender/gridlook](https://github.com/allixender/gridlook), branch
 
 **Licence of this fork:** the cell geometry is computed in the browser by [DGGRID](https://github.com/sahrk/DGGRID), which is bundled through [webDggrid](https://github.com/am2222/webDggrid) and is licensed under the GNU Affero General Public License, version 3 or later. This fork, including its built application, is therefore distributed as a whole under the GNU Affero General Public License, version 3 or later ([LICENSE](LICENSE)). The original Gridlook code is copyright of the Max Planck Institute for Meteorology and the German Climate Computing Center and remains available under the MIT licence ([LICENSE-MIT](LICENSE-MIT)); the upstream project is [d70-t/gridlook](https://github.com/d70-t/gridlook).
 
-## Try It Live
+
+### IGEO7 demo figures
+
+## Screenshots
+
+| Global View | Local DEM | Estonia DEM |
+| :---: | :---: | :---: |
+| <img src="gridlook_global_purple.png" width="300" alt="Global Purple View" /> | <img src="gridlook_local_dem.png" width="300" alt="Local DEM View" /> | <img src="gridlook_estonia_dem.png" width="300" alt="Estonia DEM View" /> |
+
+## Gridlook origin
 
 Try out the example dataset:
 
