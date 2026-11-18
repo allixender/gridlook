@@ -15,6 +15,18 @@
       "description": "All 168 072 cells of refinement level 5, stored as a single cell id range. Synthetic values between 1 and 20. Takes about half a minute to draw."
     },
     {
+      "title": "Global MERIT DEM elevation, IGEO7 level 4",
+      "url": "https://storage.googleapis.com/geo-assets/dggs-dev/gridlook-igeo7/merit_dem_igeo7_r4_ranges.zarr",
+      "tag": "igeo7",
+      "description": "All 24 012 cells of level 4 as a single cell id range, aggregated from the global level 12 MERIT DEM (36.7 billion land cells). Mean, median, min, max and standard deviation of elevation, and land fraction. Quick to draw."
+    },
+    {
+      "title": "Global MERIT DEM elevation, IGEO7 level 5",
+      "url": "https://storage.googleapis.com/geo-assets/dggs-dev/gridlook-igeo7/merit_dem_igeo7_r5_ranges.zarr",
+      "tag": "igeo7",
+      "description": "All 168 072 cells of level 5 as a single cell id range, aggregated from the global level 12 MERIT DEM. Same variables as level 4. Takes about half a minute to draw."
+    },
+    {
       "title": "Porijõgi catchment elevation, IGEO7 level 10",
       "url": "https://storage.googleapis.com/geo-assets/dggs-dev/gridlook-igeo7/pori_z7_r10_ranges.zarr",
       "tag": "igeo7",
